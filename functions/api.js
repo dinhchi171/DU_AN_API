@@ -1,11 +1,8 @@
 // File: functions/api.js
 
-// ========================================================
-// CẤU HÌNH BẢO MẬT TỪ HỆ THỐNG CŨ
-// ========================================================
 const GAS_URL = "https://script.google.com/macros/s/AKfycbytMz2q9x2qr6IpZhDUTBQMt6sTUxKOYGt0_x3B9ccumXiP3s5pvO6vgwp3C43Dizyr/exec"; 
 const SALT = '8Gochom4Truyen6Yen28_TuyetpassMat_68247294\\74\\45!@^%!@#';
-const CACHE_TTL = 14400; // Lưu cache trong KV 4 tiếng (đơn vị: giây)
+const CACHE_TTL_MS = 14400 * 1000; // 4 tiếng tính bằng mili-giây
 
 // Chống Spam (Rate Limit) cho Cloudflare
 const ipCache = new Map(); 
@@ -13,7 +10,7 @@ const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_WINDOW = 60 * 1000; 
 
 export async function onRequest(context) {
-    const { request, env } = context;
+    const { request, env, waitUntil } = context; // Thêm waitUntil để chạy ngầm
     const url = new URL(request.url);
     const method = request.method;
     const now = Date.now();
@@ -68,34 +65,54 @@ export async function onRequest(context) {
 
     try {
         // ----------------------------------------------------
-        // 3. LUỒNG GET: LẤY GỢI Ý SHOPEE TỪ CLOUDFLARE KV
+        // 3. LUỒNG GET: LẤY GỢI Ý SHOPEE TỪ CLOUDFLARE KV (STALE-WHILE-REVALIDATE)
         // ----------------------------------------------------
         if (method === 'GET' && url.searchParams.has("index")) {
             const idx = url.searchParams.get("index");
             
-            // Tìm trong ổ cứng KV xem có dữ liệu chưa
-            let allHintsCache = await env.TRUYEN_CACHE.get("ALL_HINTS", { type: "json" });
+            // Đọc từ KV kèm siêu dữ liệu (Metadata) để lấy nhãn thời gian
+            const cachedObject = await env.TRUYEN_CACHE.getWithMetadata("ALL_HINTS", { type: "json" });
+            let allHintsCache = null;
 
-            if (!allHintsCache) {
-                // Nếu KV trống -> Gọi GAS lấy TẤT CẢ
+            if (cachedObject && cachedObject.value) {
+                allHintsCache = cachedObject.value;
+                const lastUpdated = cachedObject.metadata?.lastUpdated || 0;
+                
+                // NẾU CACHE QUÁ 4 TIẾNG -> TRẢ VỀ NGAY & GỌI NGẦM GAS ĐỂ CẬP NHẬT KV
+                if (now - lastUpdated > CACHE_TTL_MS) {
+                    waitUntil((async () => {
+                        try {
+                            const res = await fetch(`${GAS_URL}?action=get_all_hints&key=${env.API_SECRET_KEY}`);
+                            const resData = await res.json();
+                            if (resData.success && resData.data) {
+                                // Lưu vĩnh viễn không dùng expirationTtl, chỉ quản lý qua lastUpdated
+                                await env.TRUYEN_CACHE.put("ALL_HINTS", JSON.stringify(resData.data), {
+                                    metadata: { lastUpdated: Date.now() }
+                                });
+                            }
+                        } catch (e) { console.log("Lỗi cập nhật ngầm HINTS:", e); }
+                    })());
+                }
+            } else {
+                // TRƯỜNG HỢP XUI NHẤT (KV TRỐNG HOÀN TOÀN) -> BUỘC PHẢI CHỜ GAS
                 const response = await fetch(`${GAS_URL}?action=get_all_hints&key=${env.API_SECRET_KEY}`);
                 const resData = await response.json();
-                
                 if (resData.success && resData.data) {
                     allHintsCache = resData.data; 
-                    // Lưu luôn vào KV để dùng cho lần sau (Sống 4 tiếng)
-                    await env.TRUYEN_CACHE.put("ALL_HINTS", JSON.stringify(allHintsCache), { expirationTtl: CACHE_TTL });
+                    await env.TRUYEN_CACHE.put("ALL_HINTS", JSON.stringify(allHintsCache), {
+                        metadata: { lastUpdated: Date.now() }
+                    });
                 } else {
                     allHintsCache = {}; 
                 }
             }
 
             const storyData = allHintsCache[idx];
-            const responseData = storyData ? storyData : { found: false, error: "Không tìm thấy dữ liệu dòng " + idx };
+            const responseData = storyData ? storyData : { found: false, error: "Truyện này không có mật khẩu từ link quảng cáo. Vui lòng sử dụng Pass Vip để đọc truyện! " + idx };
 
             return new Response(JSON.stringify(responseData), {
                 status: 200,
-                headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store, no-cache, must-revalidate" }
+                headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" }
             });
         }
 
@@ -105,27 +122,74 @@ export async function onRequest(context) {
         if (method === 'POST') {
             const body = await request.json();
 
-            // A. TÍNH NĂNG ADMIN XÓA CACHE 
+            // A. PING TỪ GAS (CẬP NHẬT NGẦM TỨC THÌ)
             if (body.action === 'clearPassCache') {
                 if (body.key !== env.API_SECRET_KEY) return new Response('Denied', { status: 403, headers: corsHeaders });
                 
-                // Dọn sạch toàn bộ Ổ cứng KV của Cloudflare
-                await env.TRUYEN_CACHE.delete("ALL_HINTS");
-                await env.TRUYEN_CACHE.delete("VIP_HASHES");
+                // Thay vì xóa trắng, ra lệnh cho Cloudflare kéo dữ liệu mới ngay lập tức
+                waitUntil((async () => {
+                    try {
+                        // Kéo Data HINTS
+                        const resHints = await fetch(`${GAS_URL}?action=get_all_hints&key=${env.API_SECRET_KEY}`);
+                        const hintsData = await resHints.json();
+                        if (hintsData.success && hintsData.data) {
+                            await env.TRUYEN_CACHE.put("ALL_HINTS", JSON.stringify(hintsData.data), {
+                                metadata: { lastUpdated: Date.now() }
+                            });
+                        }
+                        
+                        // Kéo Data VIP
+                        const resVip = await fetch(GAS_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'sync_vip_list', secret: env.API_SECRET_KEY })
+                        });
+                        const vipData = await resVip.json();
+                        if (vipData.success && vipData.data) {
+                            await env.TRUYEN_CACHE.put("VIP_HASHES", JSON.stringify(vipData.data), {
+                                metadata: { lastUpdated: Date.now() }
+                            });
+                        }
+                    } catch (e) { console.log("Lỗi xử lý Ping ngầm:", e); }
+                })());
                 
-                return new Response(JSON.stringify({ success: true, message: "Đã xóa toàn bộ Cache trên Cloudflare KV!" }), {
+                return new Response(JSON.stringify({ success: true, message: "Đã nhận Ping, Cloudflare đang ngầm tải & cập nhật bản mới nhất!" }), {
                     status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" }
                 });
             }
 
-            // B. TÍNH NĂNG CHECK VIP 
+            // B. TÍNH NĂNG CHECK VIP (CŨNG ÁP DỤNG STALE-WHILE-REVALIDATE)
             if (body.action === 'check_vip') {
                 const userPass = (body.password || '').toString().trim().toLowerCase();
                 if (!userPass) return new Response(JSON.stringify({ isValid: false }), { status: 200, headers: corsHeaders });
 
-                let vipHashesCache = await env.TRUYEN_CACHE.get("VIP_HASHES", { type: "json" });
+                const cachedVip = await env.TRUYEN_CACHE.getWithMetadata("VIP_HASHES", { type: "json" });
+                let vipHashesCache = null;
 
-                if (!vipHashesCache) {
+                if (cachedVip && cachedVip.value) {
+                    vipHashesCache = cachedVip.value;
+                    const lastUpdated = cachedVip.metadata?.lastUpdated || 0;
+
+                    // Nếu quá 4 tiếng -> Cập nhật ngầm danh sách VIP
+                    if (now - lastUpdated > CACHE_TTL_MS) {
+                        waitUntil((async () => {
+                            try {
+                                const response = await fetch(GAS_URL, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ action: 'sync_vip_list', secret: env.API_SECRET_KEY })
+                                });
+                                const resData = await response.json();
+                                if (resData.success && resData.data) {
+                                    await env.TRUYEN_CACHE.put("VIP_HASHES", JSON.stringify(resData.data), {
+                                        metadata: { lastUpdated: Date.now() }
+                                    });
+                                }
+                            } catch (e) { console.log("Lỗi cập nhật ngầm VIP:", e); }
+                        })());
+                    }
+                } else {
+                    // KV trống -> Buộc phải lấy
                     const response = await fetch(GAS_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -135,13 +199,15 @@ export async function onRequest(context) {
                     
                     if (resData.success && resData.data) {
                         vipHashesCache = resData.data; 
-                        await env.TRUYEN_CACHE.put("VIP_HASHES", JSON.stringify(vipHashesCache), { expirationTtl: CACHE_TTL });
+                        await env.TRUYEN_CACHE.put("VIP_HASHES", JSON.stringify(vipHashesCache), {
+                            metadata: { lastUpdated: Date.now() }
+                        });
                     } else {
                         return new Response(JSON.stringify({ isValid: false, error: "GAS Sync Failed" }), { status: 200, headers: corsHeaders });
                     }
                 }
 
-                // Mã hóa MD5 (Dùng hàm nội bộ)
+                // Mã hóa MD5 và đối chiếu
                 const hashedInput = md5(userPass + SALT);
                 const isValid = vipHashesCache.includes(hashedInput);
 
@@ -159,7 +225,7 @@ export async function onRequest(context) {
 }
 
 // ========================================================
-// HÀM MÃ HÓA MD5 NỘI BỘ (Thay thế cho crypto của Node.js)
+// HÀM MÃ HÓA MD5 NỘI BỘ (GIỮ NGUYÊN)
 // ========================================================
 function md5(string) {
     function rotateLeft(lValue, iShiftBits) { return (lValue<<iShiftBits) | (lValue>>>(32-iShiftBits)); }
