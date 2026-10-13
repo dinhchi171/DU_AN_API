@@ -225,17 +225,20 @@
             localStorage.setItem('yens_last_vip_pass', password);
         }
 
-        window.addEventListener('load', () => {
-            loadVipStatus();
-            setTimeout(() => {
-                extractAndSetup();
-                buildMenu();
-                let lastRead = localStorage.getItem(KEY_LUU_TRU);
-                let indexToLoad = lastRead !== null ? parseInt(lastRead) : 0;
-                renderChapter(indexToLoad);							
-                setupEvents();
-            }, 300);
-        });
+		window.addEventListener('load', () => {
+			try { loadVipStatus(); } catch(e) {}
+			setTimeout(() => {
+				extractAndSetup();
+				buildMenu();
+				let indexToLoad = 0;
+				try {
+					let lastRead = localStorage.getItem(KEY_LUU_TRU);
+					if (lastRead !== null) indexToLoad = parseInt(lastRead);
+				} catch(e) {}
+				renderChapter(indexToLoad);							
+				setupEvents();
+			}, 300);
+		});
 
         // 🟢 1. TRÍCH XUẤT THÔNG MINH (GIỮ NGUYÊN GIAO DIỆN TRUYỆN)
         function extractAndSetup() {
@@ -301,7 +304,7 @@
                 return;
             }
             if (index < 0 || index >= chapters.length) return;
-            localStorage.setItem(KEY_LUU_TRU, index);
+			try { localStorage.setItem(KEY_LUU_TRU, index); } catch(e) {}
             const chapterNum = index + 1;
             const requiredIndex = getRequiredPassIndex(chapterNum);
             const viewer = document.getElementById('viewer-container');
@@ -498,7 +501,8 @@
 
             const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (navigator.msMaxTouchPoints > 0);
             const isStrictDesktopOS = /Win32|Win64|Linux x86_64/.test(navigator.platform);
-            const isDevToolsOpen = (window.outerWidth > 0) && (window.outerWidth - window.innerWidth > 160);
+			const isInIframe = (window.self !== window.top);
+			const isDevToolsOpen = !isInIframe && (window.outerWidth > 0) && (window.outerWidth - window.innerWidth > 160);
             const isNoTouch = !hasTouch;
             const isTooBig = window.innerWidth > 1400;
 
