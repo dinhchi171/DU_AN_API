@@ -7,12 +7,14 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/blueimp-md5/2.19.0/js/md5.min.js"></script>
     <style>
         /* --- GIAO DIỆN HỆ THỐNG (APP) --- */
-        body.app-mode { margin: 0; padding: 0; background-color: #fffbf0; font-family: 'Segoe UI', sans-serif; padding-top: 55px; padding-bottom: 70px; -webkit-tap-highlight-color: transparent; }
+        /* Đã giảm padding-bottom vì không còn thanh điều hướng dưới */
+        body.app-mode { margin: 0; padding: 0; background-color: #fffbf0; font-family: 'Segoe UI', sans-serif; padding-top: 55px; padding-bottom: 20px; -webkit-tap-highlight-color: transparent; }
         
         /* Chặn PC */
         #pc-block { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100vh; background: #fff5e6; z-index: 999999; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
         @media only screen and (min-width: 1025px) { 
-            #pc-block { display: flex !important; } .top-nav, #viewer-container, .bottom-nav { display: none !important; } 
+            /* Cập nhật ẩn nút side-nav trên PC */
+            #pc-block { display: flex !important; } .top-nav, #viewer-container, .nav-btn-side { display: none !important; } 
             body.app-mode { background-color: #EFEAE0 !important; }
         }
 
@@ -24,10 +26,43 @@
         /* KHUNG HIỂN THỊ - ĐỂ TRỐNG STYLE ĐỂ ĂN THEO CSS TRUYỆN */
         #viewer-container { width: 100%; min-height: 80vh; display: block; overflow-x: hidden; position: relative; }
         
-        /* Điều hướng dưới */
-        .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 10px 0; border-top: 1px solid #eee; display: flex; justify-content: space-around; z-index: 9999; }
-        .nav-btn { padding: 10px 25px; border: none; border-radius: 25px; background-color: #ff6b6b; color: white; font-weight: bold; cursor: pointer; font-size: 15px; width: 40%; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
-        .nav-btn:disabled { background-color: #eee; color: #aaa; box-shadow: none; }
+        /* ĐIỀU HƯỚNG TRANG: Nút tròn 2 bên mép màn hình */
+        .nav-btn-side { 
+            position: fixed; 
+            bottom: 60px; /* Đẩy nút xuống gần mép dưới màn hình (chỗ ngón cái dễ bấm) */
+            width: 20px;  /* Kích thước vừa phải, không quá to */
+            height: 20px; 
+            border-radius: 50%; 
+            border: none;
+            background-color: rgba(176, 176, 176, 0.0001);
+            color: #ff6b6b; 
+            font-size: 16px; 
+            font-weight: bold; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            cursor: pointer; 
+            z-index: 9999; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            
+            /* CỐT LÕI ĐỂ KHÔNG CHOÁNG CHỖ */
+            opacity: 0.32; /* Làm mờ đi 85% khi đang đọc truyện */
+            transition: all 0.3s ease; /* Hiệu ứng mờ dần mượt mà */
+        }
+        
+        /* Khi người dùng chạm (điện thoại) hoặc di chuột vào */
+        .nav-btn-side:active, .nav-btn-side:hover {
+            opacity: 0.36; /* Hiện rõ 100% khi chạm vào */
+            transform: scale(1.1); /* Phóng to nhẹ để báo hiệu đã bấm trúng */
+        }
+        
+        .nav-btn-side:disabled { 
+            display: none; /* Ẩn hẳn nút nếu không có chương trước/sau */
+        }
+        
+        /* Căn chỉnh 2 bên mép */
+        #btnPrev { left: 3px; padding-right: 2px; } 
+        #btnNext { right: 3px; padding-left: 2px; }
 
         /* Màn hình khóa (Chèn đè lên nội dung bị khóa) */
         .lock-screen-overlay { position: relative; z-index: 100; text-align: center; padding: 40px 20px; background: #fff0f0; border: 2px dashed #ff6b6b; margin: 20px; border-radius: 12px; }
@@ -70,10 +105,9 @@
         </div>
     </div>
 
-    <div class="bottom-nav">
-        <button class="nav-btn" id="btnPrev" onclick="changeChapter(-1)">❮ Trước</button>
-        <button class="nav-btn" id="btnNext" onclick="changeChapter(1)">Sau ❯</button>
-    </div>
+    <!-- Nút điều hướng 2 bên -->
+    <button class="nav-btn-side" id="btnPrev" onclick="changeChapter(-1)">❮</button>
+    <button class="nav-btn-side" id="btnNext" onclick="changeChapter(1)">❯</button>
 
     <div id="passwordPopup">
         <div class="popup-content">
@@ -133,7 +167,7 @@
         // ========================================================
         // 🔴 CẤU HÌNH (SỬA Ở ĐÂY)
         // ========================================================
-        const API_URL = "https://meek-starship-73d644.netlify.app/.netlify/functions/api";
+        const API_URL = "https://tram-api-truyen.pages.dev/api";
         
         const LOCK_RULES = [
             { start: 36,  index: 5 },  // Từ chương 3 -> Dùng pass dòng 3 trong Sheet
@@ -143,7 +177,7 @@
             { start: 151, index: 13 },  
             { start: 181, index: 15 }  
         ];
-		const KEY_LUU_TRU = "Truyen_DaDoc_" + window.location.pathname.replace(/[^a-zA-Z0-9]/g, "");
+        const KEY_LUU_TRU = "Truyen_DaDoc_" + window.location.pathname.replace(/[^a-zA-Z0-9]/g, "");
         // ========================================================
 
         let chapters = [];
@@ -225,20 +259,20 @@
             localStorage.setItem('yens_last_vip_pass', password);
         }
 
-		window.addEventListener('load', () => {
-			try { loadVipStatus(); } catch(e) {}
-			setTimeout(() => {
-				extractAndSetup();
-				buildMenu();
-				let indexToLoad = 0;
-				try {
-					let lastRead = localStorage.getItem(KEY_LUU_TRU);
-					if (lastRead !== null) indexToLoad = parseInt(lastRead);
-				} catch(e) {}
-				renderChapter(indexToLoad);							
-				setupEvents();
-			}, 300);
-		});
+        window.addEventListener('load', () => {
+            try { loadVipStatus(); } catch(e) {}
+            setTimeout(() => {
+                extractAndSetup();
+                buildMenu();
+                let indexToLoad = 0;
+                try {
+                    let lastRead = localStorage.getItem(KEY_LUU_TRU);
+                    if (lastRead !== null) indexToLoad = parseInt(lastRead);
+                } catch(e) {}
+                renderChapter(indexToLoad);							
+                setupEvents();
+            }, 300);
+        });
 
         // 🟢 1. TRÍCH XUẤT THÔNG MINH (GIỮ NGUYÊN GIAO DIỆN TRUYỆN)
         function extractAndSetup() {
@@ -304,7 +338,7 @@
                 return;
             }
             if (index < 0 || index >= chapters.length) return;
-			try { localStorage.setItem(KEY_LUU_TRU, index); } catch(e) {}
+            try { localStorage.setItem(KEY_LUU_TRU, index); } catch(e) {}
             const chapterNum = index + 1;
             const requiredIndex = getRequiredPassIndex(chapterNum);
             const viewer = document.getElementById('viewer-container');
@@ -484,10 +518,12 @@
             if(wrapper) wrapper.style.display = 'none';
             
             const topNav = document.querySelector('.top-nav');
-            const botNav = document.querySelector('.bottom-nav');
+            const prevBtn = document.getElementById('btnPrev');
+            const nextBtn = document.getElementById('btnNext');
             const viewer = document.getElementById('viewer-container');
             if(topNav) topNav.style.display = 'none';
-            if(botNav) botNav.style.display = 'none';
+            if(prevBtn) prevBtn.style.display = 'none';
+            if(nextBtn) nextBtn.style.display = 'none';
             if(viewer) viewer.style.display = 'none';
 
             const warningBox = document.getElementById('desktop-warning-box') || document.getElementById('pc-block');
@@ -496,13 +532,57 @@
             document.body.style.backgroundColor = '#EFEAE0';
         }
 
+		// --- TÍNH NĂNG VUỐT NGANG CHUYỂN CHƯƠNG ---
+        let touchstartX = 0;
+        let touchendX = 0;
+        let touchstartY = 0; // Thêm trục Y để phân biệt vuốt ngang và cuộn dọc
+        let touchendY = 0;
+
+        function handleSwipe() {
+            let diffX = touchendX - touchstartX;
+            let diffY = touchendY - touchstartY;
+            
+            // Nếu khoảng cách vuốt ngang lớn hơn vuốt dọc (để không nhầm với cuộn trang đọc truyện) 
+            // và độ dài quãng đường vuốt đủ xa (lớn hơn 60px)
+            if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 60) {
+                if (touchendX < touchstartX) {
+                    // Vuốt từ phải sang trái (👈) -> Qua chương tiếp theo
+                    if (currentChapterIndex < chapters.length - 1) {
+                        changeChapter(1);
+                    }
+                }
+                if (touchendX > touchstartX) {
+                    // Vuốt từ trái sang phải (👉) -> Lùi về chương trước
+                    if (currentChapterIndex > 0) {
+                        changeChapter(-1);
+                    }
+                }
+            }
+        }
+
+        // Lắng nghe sự kiện chạm ngón tay vào màn hình
+        document.addEventListener('touchstart', e => {
+            // Không thực hiện vuốt nếu đang mở popup nhập mật khẩu
+            if(document.getElementById('passwordPopup').style.display === 'flex') return;
+            touchstartX = e.changedTouches[0].screenX;
+            touchstartY = e.changedTouches[0].screenY;
+        }, { passive: true });
+
+        // Lắng nghe sự kiện nhấc ngón tay lên
+        document.addEventListener('touchend', e => {
+            if(document.getElementById('passwordPopup').style.display === 'flex') return;
+            touchendX = e.changedTouches[0].screenX;
+            touchendY = e.changedTouches[0].screenY;
+            handleSwipe();
+        }, { passive: true });
+
         function checkPC() { 
             if (!document.body.classList.contains('app-mode')) return false;
 
             const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (navigator.msMaxTouchPoints > 0);
             const isStrictDesktopOS = /Win32|Win64|Linux x86_64/.test(navigator.platform);
-			const isInIframe = (window.self !== window.top);
-			const isDevToolsOpen = !isInIframe && (window.outerWidth > 0) && (window.outerWidth - window.innerWidth > 160);
+            const isInIframe = (window.self !== window.top);
+            const isDevToolsOpen = !isInIframe && (window.outerWidth > 0) && (window.outerWidth - window.innerWidth > 160);
             const isNoTouch = !hasTouch;
             const isTooBig = window.innerWidth > 1400;
 
@@ -524,8 +604,6 @@
                 triggerBlock();
             }
         }, 5000);
-    </script>
-
 
     </script>
         <!--* --- xxxxxx --- */ -->
