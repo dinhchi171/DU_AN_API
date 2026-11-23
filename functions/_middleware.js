@@ -23,7 +23,7 @@ export async function onRequest(context) {
   const isFromBlog = ALLOWED.some(d => origin.startsWith(d) || referer.startsWith(d));
 
   if (!isFromBlog || secFetchDest === "document") {
-    return new Response("Truy cập bị từ chối!", {
+    return new Response(" ", {
       status: 403,
       headers: { "Content-Type": "text/plain; charset=utf-8" }
     });
