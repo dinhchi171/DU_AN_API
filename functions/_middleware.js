@@ -23,7 +23,7 @@ export async function onRequest(context) {
   const isFromBlog = ALLOWED.some(d => origin.startsWith(d) || referer.startsWith(d));
 
   if (!isFromBlog || secFetchDest === "document") {
-    return new Response(" ", {
+    return new Response("Sai link truy cập! Vui lòng vào website https://goctruyencuayen.blogspot.com/ để đọc truyện", {
       status: 403,
       headers: { "Content-Type": "text/plain; charset=utf-8" }
     });
